@@ -3,6 +3,7 @@ export const SETTINGS_TABS = [
   "branding",
   "display",
   "webhooks",
+  "permissions",
   "danger",
 ] as const;
 
