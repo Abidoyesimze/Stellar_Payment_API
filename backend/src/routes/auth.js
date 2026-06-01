@@ -195,13 +195,19 @@ router.post("/auth/verify", validateRequest({ body: authVerifySchema }), async (
       networkPassphrase,
     );
 
-    const clientAccount = tx.operations[0]?.source;
-    if (!clientAccount) {
+    const operation = tx.operations?.[0];
+    const clientAccount = operation?.source;
+    if (!clientAccount || typeof clientAccount !== "string") {
       return res.status(400).json({ error: "Invalid transaction structure" });
     }
 
     // Verify challenge signature
-    const verification = verifyChallenge(transaction, clientAccount);
+    const verification = verifyChallenge(
+      transaction,
+      clientAccount,
+      process.env.HOME_DOMAIN,
+    );
+
     if (!verification.valid) {
       await logLoginAttempt({
         merchantId: null,

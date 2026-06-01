@@ -2,6 +2,9 @@ import jwt from "jsonwebtoken";
 import * as StellarSdk from "stellar-sdk";
 import { randomBytes } from "node:crypto";
 
+const DEFAULT_HOME_DOMAIN = "localhost";
+
+
 const NETWORK = (process.env.STELLAR_NETWORK || "testnet").toLowerCase();
 const NETWORK_PASSPHRASE =
   NETWORK === "public"
@@ -26,7 +29,7 @@ function getServerSigningKey() {
  * @param {string} [homeDomain] - Optional home domain
  * @returns {string} Base64-encoded challenge transaction XDR
  */
-export function generateChallenge(clientAccountId, homeDomain = "localhost") {
+export function generateChallenge(clientAccountId, homeDomain = DEFAULT_HOME_DOMAIN) {
   const serverSigningKey = getServerSigningKey();
 
   if (!serverSigningKey) {
@@ -70,7 +73,7 @@ export function generateChallenge(clientAccountId, homeDomain = "localhost") {
  * @param {string} clientAccountId - Expected client account ID
  * @returns {{ valid: boolean, error?: string }}
  */
-export function verifyChallenge(challengeXdr, clientAccountId) {
+export function verifyChallenge(challengeXdr, clientAccountId, homeDomain = DEFAULT_HOME_DOMAIN) {
   const serverSigningKey = getServerSigningKey();
 
   if (!serverSigningKey) {
@@ -98,6 +101,22 @@ export function verifyChallenge(challengeXdr, clientAccountId) {
       return { valid: false, error: "Client account mismatch" };
     }
 
+    // Ensure the challenge is bound to SEP-0010 auth and includes a nonce value
+    // Expected manageData name format: `${homeDomain} auth`
+    if (typeof operation.name !== "string" || !operation.name.endsWith(" auth")) {
+      return { valid: false, error: "Invalid challenge data name" };
+    }
+
+    const expectedName = `${homeDomain} auth`;
+    if (operation.name !== expectedName) {
+      return { valid: false, error: "Challenge data name mismatch" };
+    }
+
+    if (typeof operation.value !== "string" || operation.value.length < 16) {
+      return { valid: false, error: "Invalid challenge nonce" };
+    }
+
+
     // Verify timebounds
     const now = Math.floor(Date.now() / 1000);
     const { minTime, maxTime } = transaction.timeBounds;
@@ -106,10 +125,15 @@ export function verifyChallenge(challengeXdr, clientAccountId) {
       return { valid: false, error: "Challenge expired" };
     }
 
-    // Verify signatures
+    // Verify signatures (bind to expected signer keys)
+    const txHash = transaction.hash();
+
+    const serverKeypairForVerify = StellarSdk.Keypair.fromSecret(
+      serverSigningKey,
+    );
     const serverSigned = transaction.signatures.some((sig) => {
       try {
-        return serverKeypair.verify(transaction.hash(), sig.signature());
+        return serverKeypairForVerify.verify(txHash, sig.signature());
       } catch {
         return false;
       }
@@ -122,7 +146,7 @@ export function verifyChallenge(challengeXdr, clientAccountId) {
     const clientKeypair = StellarSdk.Keypair.fromPublicKey(clientAccountId);
     const clientSigned = transaction.signatures.some((sig) => {
       try {
-        return clientKeypair.verify(transaction.hash(), sig.signature());
+        return clientKeypair.verify(txHash, sig.signature());
       } catch {
         return false;
       }
@@ -131,6 +155,7 @@ export function verifyChallenge(challengeXdr, clientAccountId) {
     if (!clientSigned) {
       return { valid: false, error: "Client signature missing or invalid" };
     }
+
 
     return { valid: true };
   } catch (err) {
