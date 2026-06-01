@@ -318,6 +318,7 @@ export default function TransactionFilterSidebar({
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 4 }}
                     transition={{ duration: 0.15 }}
+                    aria-hidden="true"
                   >
                     <SyncSpinner label="Applying status filter" />
                   </motion.span>
