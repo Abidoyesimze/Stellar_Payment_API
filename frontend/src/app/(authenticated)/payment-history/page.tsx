@@ -9,6 +9,7 @@ import PaymentDetailModal from "@/components/PaymentDetailModal";
 import PaymentDetailsSheet from "@/components/PaymentDetailsSheet";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import TransactionFilterSidebar from "@/components/TransactionFilterSidebar";
+import TransactionHistoryPagination from "@/components/TransactionHistoryPagination";
 import { localeToLanguageTag } from "@/i18n/config";
 import { toast } from "sonner";
 import {
@@ -32,6 +33,7 @@ interface Payment {
 interface PaginatedResponse {
   payments: Payment[];
   total_count: number;
+  total_pages: number;
 }
 
 const LIMIT = 50;
@@ -82,11 +84,27 @@ export default function PaymentHistoryPage() {
     onClearAll,
   } = useTransactionFilters(pushSearchParams, searchParams);
 
+  // ── Pagination: page is derived straight from the URL, same as filters ──────
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextPage <= 1) {
+        params.delete("page");
+      } else {
+        params.set("page", nextPage.toString());
+      }
+      pushSearchParams(params);
+    },
+    [searchParams, pushSearchParams],
+  );
+
   // ── UI state ────────────────────────────────────────────────────────────────
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
   const [hoveredPayment, setHoveredPayment] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -159,7 +177,7 @@ export default function PaymentHistoryPage() {
 
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
         const params = new URLSearchParams(searchParams.toString());
-        params.set("page", "1");
+        params.set("page", page.toString());
         params.set("limit", LIMIT.toString());
 
         const response = await fetch(`${apiUrl}/api/payments?${params.toString()}`, {
@@ -172,6 +190,7 @@ export default function PaymentHistoryPage() {
         const data: PaginatedResponse = await response.json();
         setPayments(data.payments ?? []);
         setTotalCount(data.total_count ?? 0);
+        setTotalPages(data.total_pages ?? 0);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : t("loadFailed"));
@@ -182,7 +201,7 @@ export default function PaymentHistoryPage() {
 
     fetchPayments();
     return () => controller.abort();
-  }, [searchParams, apiKey, t]);
+  }, [searchParams, apiKey, t, page]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handlePaymentClick = (paymentId: string) => {
@@ -501,11 +520,14 @@ export default function PaymentHistoryPage() {
             </div>
           )}
 
-          {totalCount > LIMIT && (
-            <div className="flex items-center justify-center py-6">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#A0A0A0]">End of list (Showing {LIMIT} most recent)</p>
-            </div>
-          )}
+          <TransactionHistoryPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            limit={LIMIT}
+            onPageChange={handlePageChange}
+            disabled={loading}
+          />
         </div>
       </div>
 
